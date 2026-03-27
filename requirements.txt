@@ -6,8 +6,11 @@ colorama==0.4.6
 fastapi==0.135.2
 h11==0.16.0
 idna==3.11
+lxml==6.0.2
 pydantic==2.12.5
 pydantic_core==2.41.5
+PyPDF2==3.0.1
+python-docx==1.2.0
 python-multipart==0.0.22
 starlette==1.0.0
 typing-inspection==0.4.2
