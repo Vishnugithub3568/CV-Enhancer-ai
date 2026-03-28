@@ -25,6 +25,12 @@ TARGET_KEYS = [
     "extracurricular",
 ]
 
+IMMUTABLE_KEYS = {"name", "email", "phone", "links"}
+LOW_VALUE_TOKENS = {
+    "a", "an", "and", "as", "at", "by", "for", "from", "in", "is", "of", "on", "or", "the", "to", "with",
+    "developed", "built", "created", "using", "worked", "project", "team", "experience", "skills", "summary",
+}
+
 
 def _clean_text(value):
     if not isinstance(value, str):
@@ -76,6 +82,42 @@ def _extract_json_from_text(text):
     return None
 
 
+def _tokenize(value):
+    if not isinstance(value, str):
+        return []
+    return re.findall(r"[A-Za-z][A-Za-z0-9+#.-]{2,}", value.lower())
+
+
+def _novel_entity_ratio(source_value, candidate_value):
+    source_tokens = set(_tokenize(source_value))
+    candidate_tokens = [token for token in _tokenize(candidate_value) if token not in LOW_VALUE_TOKENS]
+    if not candidate_tokens:
+        return 0.0
+
+    novel = [token for token in candidate_tokens if token not in source_tokens]
+    return len(novel) / len(candidate_tokens)
+
+
+def _passes_factual_guardrails(source_data, candidate_data):
+    guarded = dict(candidate_data)
+
+    for key in TARGET_KEYS:
+        if key in IMMUTABLE_KEYS:
+            guarded[key] = source_data.get(key, guarded.get(key))
+            continue
+
+        source_value = source_data.get(key, "")
+        candidate_value = guarded.get(key, "")
+        if not source_value or not candidate_value:
+            continue
+
+        # If too many unfamiliar entity-like tokens appear, keep original field.
+        if _novel_entity_ratio(source_value, candidate_value) > 0.35:
+            guarded[key] = source_value
+
+    return guarded
+
+
 def enhance_resume(parsed_data):
     safe_data = _normalize_output(parsed_data)
     if not os.getenv("OPENAI_API_KEY"):
@@ -112,7 +154,9 @@ def enhance_resume(parsed_data):
 
         merged = safe_data.copy()
         merged.update(parsed_response)
-        return _normalize_output(merged)
+        normalized = _normalize_output(merged)
+        guarded = _passes_factual_guardrails(safe_data, normalized)
+        return _normalize_output(guarded)
 
     except Exception:
         # Safe fallback: return cleaned original data without adding new information.

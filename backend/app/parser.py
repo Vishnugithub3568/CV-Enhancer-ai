@@ -16,6 +16,8 @@ SECTION_ALIASES = {
     "extracurricular": {"extra-curricular", "extracurricular", "activities"},
 }
 
+PRIMARY_SECTION_KEYS = ["summary", "education", "skills", "projects", "experience"]
+
 
 def extract_text_from_pdf(file_path):
     text = ""
@@ -45,6 +47,13 @@ def extract_text(file_path):
 
 def _normalize_heading(line):
     return re.sub(r"[^a-z ]", "", line.lower()).strip()
+
+
+def _split_heading_content(line):
+    if ":" not in line:
+        return line, ""
+    left, right = line.split(":", 1)
+    return left.strip(), right.strip()
 
 
 def _find_section(line):
@@ -170,9 +179,12 @@ def parse_resume_sections(text):
     current_section = None
 
     for line in lines:
-        matched_section = _find_section(line)
+        heading_candidate, inline_content = _split_heading_content(line)
+        matched_section = _find_section(heading_candidate)
         if matched_section:
             current_section = matched_section
+            if inline_content:
+                sections[current_section].append(inline_content)
             continue
 
         if current_section:
@@ -227,4 +239,64 @@ def parse_resume_sections(text):
         "extracurricular": "\n".join(sections["extracurricular"]).strip(),
     }
 
+    if _is_low_confidence_parse(data):
+        data = _apply_low_confidence_fallback(data, lines)
+
     return data
+
+
+def _is_low_confidence_parse(data):
+    primary_filled = sum(1 for key in PRIMARY_SECTION_KEYS if data.get(key, "").strip())
+    contact_filled = int(bool(data.get("email"))) + int(bool(data.get("phone")))
+    name_filled = int(bool(data.get("name")))
+
+    # Weighted confidence score keeps extraction deterministic and PRD-safe.
+    score = (primary_filled / len(PRIMARY_SECTION_KEYS)) * 0.65
+    score += (contact_filled / 2) * 0.25
+    score += name_filled * 0.10
+    return score < 0.45
+
+
+def _best_long_lines(lines, minimum_words=8, limit=2):
+    candidates = [line for line in lines if len(line.split()) >= minimum_words and not _is_contact_or_link_line(line)]
+    candidates.sort(key=lambda line: len(line.split()), reverse=True)
+    return candidates[:limit]
+
+
+def _apply_low_confidence_fallback(data, lines):
+    recovered = dict(data)
+
+    if not recovered.get("summary", "").strip():
+        recovered["summary"] = " ".join(_best_long_lines(lines)).strip()
+
+    if not recovered.get("education", "").strip():
+        recovered["education"] = _fallback_section_text(
+            lines,
+            ["bachelor", "master", "university", "college", "cgpa", "gpa", "school"],
+        )
+
+    if not recovered.get("skills", "").strip():
+        recovered["skills"] = _fallback_section_text(
+            lines,
+            ["skills", "python", "java", "sql", "react", "node", "fastapi", "docker"],
+        )
+
+    if not recovered.get("projects", "").strip():
+        recovered["projects"] = _fallback_section_text(
+            lines,
+            ["project", "developed", "built", "implemented", "designed"],
+        )
+
+    if not recovered.get("experience", "").strip():
+        recovered["experience"] = _fallback_section_text(
+            lines,
+            ["experience", "intern", "worked", "engineer", "developer", "responsible"],
+        )
+
+    if not recovered.get("certifications", "").strip():
+        recovered["certifications"] = _fallback_section_text(lines, ["certification", "certificate"])
+
+    if not recovered.get("achievements", "").strip():
+        recovered["achievements"] = _fallback_section_text(lines, ["achievement", "award", "won"])
+
+    return recovered

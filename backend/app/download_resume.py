@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 import os
 
+from app.api_errors import ErrorCode, raise_api_error
 from app.storage import GENERATED_DIR, cleanup_runtime_files, get_latest_file
 
 router = APIRouter()
@@ -13,11 +14,19 @@ def download_resume(format: str = "pdf"):
 
     normalized_format = format.lower().strip()
     if normalized_format not in {"pdf", "docx"}:
-        raise HTTPException(status_code=400, detail="Invalid format. Use 'pdf' or 'docx'.")
+        raise_api_error(
+            status_code=400,
+            code=ErrorCode.INVALID_DOWNLOAD_FORMAT,
+            message="Invalid format. Use 'pdf' or 'docx'.",
+        )
 
     latest_file = get_latest_file(GENERATED_DIR, {f".{normalized_format}"})
     if not latest_file:
-        return {"message": "No generated resumes found"}
+        raise_api_error(
+            status_code=404,
+            code=ErrorCode.NO_GENERATED_RESUME,
+            message="No generated resumes found.",
+        )
 
     media_type = "application/pdf" if normalized_format == "pdf" else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
