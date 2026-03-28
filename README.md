@@ -147,6 +147,38 @@ Open browser:
 http://localhost:5173
 ```
 
+Create `frontend/.env` from `frontend/.env.example` and set:
+
+```
+VITE_API_BASE_URL=http://127.0.0.1:8003
+```
+
+---
+
+## Deployment
+
+### Backend (Render)
+
+* Runtime: Python
+* Build Command: `pip install -r backend/requirements.txt`
+* Start Command: `bash backend/start.sh`
+* Root Directory: leave blank
+
+### Frontend (Vercel)
+
+* Root Directory: `frontend`
+* Framework Preset: Vite
+* Build Command: `npm run build`
+* Output Directory: `dist`
+* Environment Variable: `VITE_API_BASE_URL=https://your-render-backend.onrender.com`
+
+---
+
+## Live Demo
+
+Frontend: https://your-vercel-link
+Backend API: https://your-render-link
+
 ---
 
 ## API Endpoints

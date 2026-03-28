@@ -1,4 +1,5 @@
 import { useState } from "react";
+import axios from "axios";
 import "./App.css";
 
 const STATUS = {
@@ -12,10 +13,6 @@ const STATUS = {
 const ERROR_MESSAGES = {
   UNSUPPORTED_FORMAT: "Unsupported format. Please upload a PDF or DOCX file.",
 };
-
-const MOCK_UPLOAD_DELAY_MS = 1200;
-const MOCK_GENERATE_DELAY_MS = 1700;
-const MOCK_DOWNLOAD_DELAY_MS = 700;
 
 const ALLOWED_UPLOAD_EXTENSIONS = new Set([".pdf", ".docx"]);
 const ALLOWED_UPLOAD_MIME_TYPES = new Set([
@@ -40,7 +37,18 @@ const isAllowedResumeFile = (candidateFile) => {
   return !fileType || ALLOWED_UPLOAD_MIME_TYPES.has(fileType);
 };
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const getApiErrorMessage = (error, fallback) => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === "string" && detail.trim()) {
+    return detail;
+  }
+
+  if (detail && typeof detail === "object") {
+    return detail.message || fallback;
+  }
+
+  return fallback;
+};
 
 function App() {
   const [file, setFile] = useState(null);
@@ -50,6 +58,8 @@ function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [hasUploaded, setHasUploaded] = useState(false);
   const [hasGenerated, setHasGenerated] = useState(false);
+
+  const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8003";
 
   const isBusy = isUploading || isGenerating;
   const hasValidSelection = Boolean(file && isAllowedResumeFile(file));
@@ -108,15 +118,18 @@ function App() {
       setStatusType(STATUS.UPLOADING);
       setStatusText("Extracting resume details...");
 
-      await wait(MOCK_UPLOAD_DELAY_MS);
+      const formData = new FormData();
+      formData.append("file", file);
+
+      await axios.post(`${API_BASE}/upload-resume/`, formData);
       setHasUploaded(true);
       setHasGenerated(false);
 
       setStatusType(STATUS.SUCCESS);
       setStatusText("Resume uploaded successfully. You can now generate your resume.");
-    } catch {
+    } catch (error) {
       setStatusType(STATUS.ERROR);
-      setStatusText("Upload failed. Please try again.");
+      setStatusText(getApiErrorMessage(error, "Upload failed. Please try again."));
     } finally {
       setIsUploading(false);
     }
@@ -140,14 +153,14 @@ function App() {
       setStatusType(STATUS.GENERATING);
       setStatusText("AI is enhancing your resume...");
 
-      await wait(MOCK_GENERATE_DELAY_MS);
+      await axios.get(`${API_BASE}/generate-resume/`);
       setHasGenerated(true);
 
       setStatusType(STATUS.SUCCESS);
       setStatusText("Resume generated successfully. Download PDF or DOCX below.");
-    } catch {
+    } catch (error) {
       setStatusType(STATUS.ERROR);
-      setStatusText("Generation failed. Please try again.");
+      setStatusText(getApiErrorMessage(error, "Generation failed. Please try again."));
     } finally {
       setIsGenerating(false);
     }
@@ -164,13 +177,24 @@ function App() {
       setStatusType(STATUS.IDLE);
       setStatusText(`Preparing ${format.toUpperCase()} download...`);
 
-      await wait(MOCK_DOWNLOAD_DELAY_MS);
+      const response = await axios.get(`${API_BASE}/download-resume/?format=${format}`, {
+        responseType: "blob",
+      });
+
+      const blobUrl = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = blobUrl;
+      link.download = `enhanced_resume.${format}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.URL.revokeObjectURL(blobUrl);
 
       setStatusType(STATUS.SUCCESS);
-      setStatusText(`${format.toUpperCase()} is ready. (Mock download in UI mode)`);
-    } catch {
+      setStatusText(`${format.toUpperCase()} downloaded successfully.`);
+    } catch (error) {
       setStatusType(STATUS.ERROR);
-      setStatusText(`Could not prepare ${format.toUpperCase()}. Please try again.`);
+      setStatusText(getApiErrorMessage(error, `Could not prepare ${format.toUpperCase()}. Please try again.`));
     }
   };
 
