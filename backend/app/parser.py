@@ -49,9 +49,17 @@ def _normalize_heading(line):
 
 def _find_section(line):
     normalized = _normalize_heading(line.replace(":", " "))
+    if not normalized:
+        return None
+
     for section, aliases in SECTION_ALIASES.items():
         for alias in aliases:
-            if normalized == alias or normalized.startswith(alias + " "):
+            if (
+                normalized == alias
+                or normalized.startswith(alias + " ")
+                or normalized.endswith(" " + alias)
+                or f" {alias} " in f" {normalized} "
+            ):
                 return section
     return None
 
@@ -73,7 +81,12 @@ def _extract_phone(text):
     if not matches:
         return ""
 
-    cleaned = [re.sub(r"\s+", " ", m).strip() for m in matches]
+    cleaned = []
+    for raw in matches:
+        normalized = re.sub(r"[^\d+\-() ]", "", raw)
+        normalized = re.sub(r"\s+", " ", normalized).strip()
+        normalized = normalized.lstrip(") ")
+        cleaned.append(normalized)
     return cleaned[0]
 
 
@@ -102,6 +115,54 @@ def _extract_links(text):
     return link_data
 
 
+def _is_contact_or_link_line(line):
+    lower = line.lower()
+    return (
+        "@" in line
+        or "linkedin" in lower
+        or "github" in lower
+        or "http://" in lower
+        or "https://" in lower
+        or "www." in lower
+    )
+
+
+def _looks_like_name(line):
+    candidate = re.sub(r"[^A-Za-z\s]", "", line).strip()
+    if not candidate:
+        return False
+    words = [w for w in candidate.split() if w]
+    if len(words) < 2 or len(words) > 4:
+        return False
+    if any(w.lower() in {"resume", "curriculum", "vitae", "contact"} for w in words):
+        return False
+    return all(w[0].isupper() for w in words if w)
+
+
+def _extract_name(lines):
+    for line in lines[:8]:
+        if _is_contact_or_link_line(line):
+            continue
+        if re.search(r"\d", line):
+            continue
+        if _looks_like_name(line):
+            return line.strip()
+
+    fallback = _first_non_empty_line(lines)
+    if _is_contact_or_link_line(fallback) or re.search(r"\d", fallback):
+        return ""
+    return fallback
+
+
+def _fallback_section_text(lines, keywords):
+    collected = []
+    for line in lines:
+        lower = line.lower()
+        if any(keyword in lower for keyword in keywords):
+            collected.append(line)
+    return "\n".join(collected[:5]).strip()
+
+
 def parse_resume_sections(text):
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     sections = {key: [] for key in SECTION_ALIASES}
@@ -119,21 +180,36 @@ def parse_resume_sections(text):
         else:
             preamble.append(line)
 
-    name_candidate = _first_non_empty_line(lines)
-    if "@" in name_candidate or "http" in name_candidate.lower() or "linkedin" in name_candidate.lower():
-        name_candidate = ""
+    name_candidate = _extract_name(lines)
 
     summary_text = "\n".join(sections["summary"]).strip()
     if not summary_text:
         summary_candidates = []
         for line in preamble:
-            lower = line.lower()
-            if "@" in line or "linkedin" in lower or "github" in lower:
+            if _is_contact_or_link_line(line):
                 continue
             if re.search(r"\+?\d", line):
                 continue
+            if len(line.split()) < 6:
+                continue
             summary_candidates.append(line)
         summary_text = " ".join(summary_candidates[:2]).strip()
+
+    education_text = "\n".join(sections["education"]).strip()
+    if not education_text:
+        education_text = _fallback_section_text(lines, ["bachelor", "master", "university", "college", "cgpa", "gpa"])
+
+    skills_text = "\n".join(sections["skills"]).strip()
+    if not skills_text:
+        skills_text = _fallback_section_text(lines, ["python", "java", "sql", "react", "fastapi", "skills"])
+
+    projects_text = "\n".join(sections["projects"]).strip()
+    if not projects_text:
+        projects_text = _fallback_section_text(lines, ["project", "developed", "built", "implemented"])
+
+    experience_text = "\n".join(sections["experience"]).strip()
+    if not experience_text:
+        experience_text = _fallback_section_text(lines, ["experience", "intern", "worked", "developer", "engineer"])
 
     data = {
         "name": name_candidate,
@@ -141,10 +217,10 @@ def parse_resume_sections(text):
         "phone": _extract_phone(text),
         "links": _extract_links(text),
         "summary": summary_text,
-        "education": "\n".join(sections["education"]).strip(),
-        "skills": "\n".join(sections["skills"]).strip(),
-        "projects": "\n".join(sections["projects"]).strip(),
-        "experience": "\n".join(sections["experience"]).strip(),
+        "education": education_text,
+        "skills": skills_text,
+        "projects": projects_text,
+        "experience": experience_text,
         "certifications": "\n".join(sections["certifications"]).strip(),
         "achievements": "\n".join(sections["achievements"]).strip(),
         "responsibilities": "\n".join(sections["responsibilities"]).strip(),
