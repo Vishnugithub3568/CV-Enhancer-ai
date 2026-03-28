@@ -211,3 +211,9 @@ backend/*test_resume*.docx
 backend/sample_resume*.txt
 backend/uploads/*
 !backend/uploads/.gitkeep
+backend/generated_resumes/*
+!backend/generated_resumes/.gitkeep
+
+# Internal planning/notes artifacts
+*SUMMARY*.md
+*project-plan*.md
