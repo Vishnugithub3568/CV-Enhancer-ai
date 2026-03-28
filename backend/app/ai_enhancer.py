@@ -7,8 +7,6 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-
 TARGET_KEYS = [
     "name",
     "email",
@@ -120,10 +118,13 @@ def _passes_factual_guardrails(source_data, candidate_data):
 
 def enhance_resume(parsed_data):
     safe_data = _normalize_output(parsed_data)
-    if not os.getenv("OPENAI_API_KEY"):
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
         return safe_data
 
     try:
+        client = OpenAI(api_key=api_key)
+
         prompt = f"""
         Rewrite the following resume content professionally while preserving original facts.
         Do not add new companies, technologies, dates, roles, achievements, links, or qualifications.
