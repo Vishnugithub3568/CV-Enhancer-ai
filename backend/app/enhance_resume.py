@@ -1,22 +1,20 @@
 from fastapi import APIRouter
-import os
+
 from app.parser import extract_text, parse_resume_sections
 from app.ai_enhancer import enhance_resume
+from app.storage import SUPPORTED_UPLOAD_EXTENSIONS, UPLOAD_DIR, cleanup_runtime_files, get_latest_file
 
 router = APIRouter()
-
-UPLOAD_DIR = "uploads"
 
 
 @router.get("/enhance-resume/")
 def enhance_resume_api():
     try:
-        files = os.listdir(UPLOAD_DIR)
+        cleanup_runtime_files()
+        latest_file = get_latest_file(UPLOAD_DIR, SUPPORTED_UPLOAD_EXTENSIONS)
 
-        if not files:
+        if not latest_file:
             return {"message": "No resumes uploaded"}
-
-        latest_file = os.path.join(UPLOAD_DIR, files[-1])
 
         text = extract_text(latest_file)
         parsed_data = parse_resume_sections(text)

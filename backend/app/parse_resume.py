@@ -1,23 +1,18 @@
-import os
-
 from fastapi import APIRouter
 
 from app.parser import extract_text, parse_resume_sections
+from app.storage import SUPPORTED_UPLOAD_EXTENSIONS, UPLOAD_DIR, cleanup_runtime_files, get_latest_file
 
 router = APIRouter()
-
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
 
 @router.get("/parse-resume/")
 def parse_resume():
-    files = os.listdir(UPLOAD_DIR)
+    cleanup_runtime_files()
+    latest_file = get_latest_file(UPLOAD_DIR, SUPPORTED_UPLOAD_EXTENSIONS)
 
-    if not files:
+    if not latest_file:
         return {"message": "No resumes uploaded"}
-
-    latest_file = os.path.join(UPLOAD_DIR, files[-1])
 
     text = extract_text(latest_file)
     parsed_data = parse_resume_sections(text)
