@@ -170,14 +170,14 @@ VITE_API_BASE_URL=http://127.0.0.1:8003
 * Framework Preset: Vite
 * Build Command: `npm run build`
 * Output Directory: `dist`
-* Environment Variable: `VITE_API_BASE_URL=https://your-render-backend.onrender.com`
+* Environment Variable: `VITE_API_BASE_URL=https://cv-enhancer-backend-1iwo.onrender.com`
 
 ---
 
 ## Live Demo
 
-Frontend: https://your-vercel-link
-Backend API: https://your-render-link
+Frontend: https://cv-enhancer-ai-jet.vercel.app/
+Backend API: https://cv-enhancer-backend-1iwo.onrender.com
 
 ---
 
