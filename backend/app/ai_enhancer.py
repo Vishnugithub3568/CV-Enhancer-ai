@@ -25,6 +25,27 @@ TARGET_KEYS = [
 
 IMMUTABLE_KEYS = {"name", "email", "phone", "links"}
 BULLET_SECTION_KEYS = {"projects", "experience", "certifications", "achievements", "responsibilities", "extracurricular"}
+STRONG_ACTION_VERBS = {
+    "developed", "designed", "implemented", "built", "created", "integrated",
+    "automated", "optimized", "analyzed", "led", "collaborated", "organized", "managed",
+}
+WEAK_START_PATTERNS = {
+    "worked on": "Developed",
+    "helped in": "Contributed to",
+    "did project": "Implemented",
+    "made": "Built",
+}
+
+SKILL_CATEGORY_KEYWORDS = {
+    "Programming Languages": {"python", "java", "c", "c++", "c#", "javascript", "typescript", "go", "rust", "php", "kotlin", "swift", "sql"},
+    "Web Development": {"react", "vite", "html", "css", "javascript", "typescript", "node", "fastapi", "django", "flask", "bootstrap", "tailwind", "rest", "api"},
+    "Databases": {"mysql", "postgresql", "postgres", "mongodb", "sqlite", "oracle", "firebase", "redis"},
+    "Tools & Platforms": {"git", "github", "docker", "postman", "linux", "jira", "figma", "vercel", "render", "aws", "azure", "gcp"},
+    "Machine Learning / Data Science": {"machine learning", "deep learning", "tensorflow", "pytorch", "scikit-learn", "pandas", "numpy", "opencv", "matplotlib"},
+    "Operating Systems": {"windows", "linux", "ubuntu", "macos"},
+    "Soft Skills": {"communication", "teamwork", "leadership", "problem solving", "adaptability", "time management", "collaboration"},
+}
+
 LOW_VALUE_TOKENS = {
     "a", "an", "and", "as", "at", "by", "for", "from", "in", "is", "of", "on", "or", "the", "to", "with",
     "developed", "built", "created", "using", "worked", "project", "team", "experience", "skills", "summary",
@@ -65,7 +86,9 @@ def _ensure_bullet_block(value):
     items = _split_into_items(value)
     if not items:
         return ""
-    return "\n".join(f"- {item}" for item in items if item)
+
+    strengthened = [_strengthen_action_verb(item) for item in items if item]
+    return "\n".join(f"- {item}" for item in strengthened if item)
 
 
 def _format_summary(value):
@@ -79,24 +102,145 @@ def _format_summary(value):
     return text
 
 
+def _normalize_skill_token(token):
+    cleaned = token.strip(" .;:-")
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned
+
+
+def _skill_bucket_for(token):
+    lower = token.lower()
+    for category, keywords in SKILL_CATEGORY_KEYWORDS.items():
+        if lower in keywords:
+            return category
+        if any(k in lower for k in keywords if " " in k):
+            return category
+    return None
+
+
+def _extract_skill_tokens(text):
+    parts = re.split(r"[,|/]", text)
+    tokens = []
+    for part in parts:
+        token = _normalize_skill_token(part)
+        if token:
+            tokens.append(token)
+    return tokens
+
+
 def _format_skills(value):
     text = _clean_text(value)
     if not text:
         return ""
 
-    if ":" in text or text.startswith("-"):
+    tokens = []
+    for line in text.split("\n"):
+        line_clean = line.strip()
+        if not line_clean:
+            continue
+        if line_clean.startswith("- "):
+            line_clean = line_clean[2:].strip()
+        if ":" in line_clean:
+            _, rhs = line_clean.split(":", 1)
+            tokens.extend(_extract_skill_tokens(rhs))
+        else:
+            tokens.extend(_extract_skill_tokens(line_clean))
+
+    if not tokens:
         return text
 
-    tokens = [token.strip() for token in re.split(r"[,|/]", text) if token.strip()]
-    if len(tokens) >= 4:
-        return "\n".join(f"- {token}" for token in tokens)
+    grouped = {category: [] for category in SKILL_CATEGORY_KEYWORDS}
+    uncategorized = []
+    seen = set()
 
-    return text
+    for raw_token in tokens:
+        token = _normalize_skill_token(raw_token)
+        if not token:
+            continue
+        key = token.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+
+        bucket = _skill_bucket_for(token)
+        if bucket:
+            grouped[bucket].append(token)
+        else:
+            uncategorized.append(token)
+
+    lines = []
+    for category in [
+        "Programming Languages",
+        "Web Development",
+        "Databases",
+        "Tools & Platforms",
+        "Machine Learning / Data Science",
+        "Operating Systems",
+        "Soft Skills",
+    ]:
+        if grouped[category]:
+            lines.append(f"{category}: {', '.join(grouped[category])}")
+
+    if uncategorized:
+        lines.append(f"Additional Skills: {', '.join(uncategorized)}")
+
+    return "\n".join(lines) if lines else text
+
+
+def _infer_career_interest(skills_text):
+    skills = skills_text.lower()
+    if any(k in skills for k in ["react", "node", "fastapi", "django", "flask", "web"]):
+        return "software development and full stack engineering"
+    if any(k in skills for k in ["tensorflow", "pytorch", "machine learning", "opencv", "data"]):
+        return "machine learning and data-driven engineering roles"
+    return "software development roles"
+
+
+def _build_fallback_summary(data):
+    education = _clean_text(data.get("education", ""))
+    skills = _clean_text(data.get("skills", ""))
+    projects = _clean_text(data.get("projects", ""))
+
+    education_line = education.split("\n")[0] if education else "Computer Science undergraduate"
+    skills_tokens = _extract_skill_tokens(skills.replace("\n", ", "))
+    top_skills = ", ".join(skills_tokens[:4]) if skills_tokens else "Python, Java, and web technologies"
+    career_interest = _infer_career_interest(skills)
+
+    project_phrase = ""
+    if projects:
+        project_phrase = " Experienced in building academic and personal projects with practical implementation focus."
+
+    return (
+        f"{education_line} with a strong foundation in {top_skills}."
+        f"{project_phrase}"
+        f" Seeking opportunities in {career_interest} to apply technical and problem-solving skills."
+    ).strip()
+
+
+def _strengthen_action_verb(item):
+    text = _clean_text(item)
+    if not text:
+        return ""
+
+    lower = text.lower()
+    for weak_start, replacement in WEAK_START_PATTERNS.items():
+        if lower.startswith(weak_start):
+            suffix = text[len(weak_start):].strip(" .")
+            return f"{replacement} {suffix}".strip()
+
+    first_word_match = re.match(r"([A-Za-z]+)", text)
+    if first_word_match and first_word_match.group(1).lower() in STRONG_ACTION_VERBS:
+        return text
+
+    return f"Implemented {text[0].lower() + text[1:] if len(text) > 1 else text.lower()}"
 
 
 def _post_format_enhanced_data(data):
     formatted = dict(data)
-    formatted["summary"] = _format_summary(formatted.get("summary", ""))
+    summary_value = _format_summary(formatted.get("summary", ""))
+    if not summary_value:
+        summary_value = _format_summary(_build_fallback_summary(formatted))
+    formatted["summary"] = summary_value
     formatted["skills"] = _format_skills(formatted.get("skills", ""))
 
     for key in BULLET_SECTION_KEYS:
@@ -189,7 +333,7 @@ def enhance_resume(parsed_data):
     safe_data = _normalize_output(parsed_data)
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
-        return safe_data
+        return _normalize_output(_post_format_enhanced_data(safe_data))
 
     try:
         client = OpenAI(api_key=api_key)
@@ -213,8 +357,8 @@ def enhance_resume(parsed_data):
         - Technical Skills
         - Projects
         - Internship / Work Experience
-        - Certifications
         - Achievements / Extracurricular Activities
+        - Certifications
         - Coding Profiles / Links
 
         Critical factual rules:
@@ -227,7 +371,9 @@ def enhance_resume(parsed_data):
         Formatting rules:
         - Use concise bullet points for projects, experience, certifications, achievements, responsibilities, and extracurricular when content exists.
         - Keep summary plain text in 2-3 lines.
-        - Keep skills clearly organized with readable groupings when possible.
+        - Group skills in categories where possible: Programming Languages, Web Development, Databases, Tools & Platforms, Machine Learning / Data Science, Operating Systems, Soft Skills.
+        - Prefer strong action verbs: Developed, Designed, Implemented, Built, Created, Integrated, Automated, Optimized, Led, Organized, Collaborated, Managed.
+        - Avoid weak starts like: Worked on, Did project, Helped in, Made.
 
         Output format:
         - Return ONLY valid JSON.

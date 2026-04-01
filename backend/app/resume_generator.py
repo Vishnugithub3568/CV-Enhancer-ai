@@ -18,10 +18,8 @@ SECTION_ORDER = [
     ("skills", "Technical Skills"),
     ("projects", "Projects"),
     ("experience", "Internship / Work Experience"),
+    ("activities", "Achievements / Leadership / Activities"),
     ("certifications", "Certifications"),
-    ("achievements", "Achievements"),
-    ("responsibilities", "Positions of Responsibility"),
-    ("extracurricular", "Extra-Curricular Activities"),
 ]
 
 
@@ -71,6 +69,23 @@ def _parse_section_lines(value: str) -> list:
     return lines
 
 
+def _merge_activity_sections(data: dict) -> str:
+    merged = []
+    for key in ("achievements", "responsibilities", "extracurricular"):
+        value = _safe_text(data.get(key, ""))
+        if not value:
+            continue
+        for is_bullet, text in _parse_section_lines(value):
+            merged.append(f"- {text}" if is_bullet else f"- {text}")
+    return "\n".join(merged).strip()
+
+
+def _get_section_value(data: dict, key: str) -> str:
+    if key == "activities":
+        return _merge_activity_sections(data)
+    return _safe_text(data.get(key, ""))
+
+
 def _add_docx_section_content(doc: Document, value: str) -> None:
     parsed_lines = _parse_section_lines(value)
     if not parsed_lines:
@@ -113,7 +128,7 @@ def _create_docx(data: dict, file_path: str) -> None:
         doc.add_paragraph(contact)
 
     for key, title in SECTION_ORDER:
-        value = _safe_text(data.get(key, ""))
+        value = _get_section_value(data, key)
         if not value:
             continue
         doc.add_heading(title, level=1)
@@ -166,7 +181,7 @@ def _create_pdf(data: dict, file_path: str) -> None:
     story.append(Spacer(1, 8))
 
     for key, title in SECTION_ORDER:
-        value = _safe_text(data.get(key, ""))
+        value = _get_section_value(data, key)
         if not value:
             continue
         story.append(Paragraph(title, heading_style))
