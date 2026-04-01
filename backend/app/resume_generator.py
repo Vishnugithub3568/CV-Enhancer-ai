@@ -38,19 +38,68 @@ def _build_contact_line(data: dict) -> str:
         if value:
             parts.append(value)
 
+    return " | ".join(parts)
+
+
+def _build_links_lines(data: dict) -> list:
     links = data.get("links", {}) if isinstance(data.get("links"), dict) else {}
+    lines = []
+
     for key in ("linkedin", "github", "portfolio"):
         value = _safe_text(links.get(key, ""))
         if value:
-            parts.append(value)
+            lines.append(value)
 
     other_links = links.get("other", []) if isinstance(links.get("other"), list) else []
     for item in other_links:
         value = _safe_text(item)
         if value:
-            parts.append(value)
+            lines.append(value)
 
-    return " | ".join(parts)
+    return lines
+
+
+def _parse_section_lines(value: str) -> list:
+    lines = []
+    for raw in value.split("\n"):
+        line = raw.strip()
+        if not line:
+            continue
+        is_bullet = line.startswith("- ") or line.startswith("* ")
+        text = line[2:].strip() if is_bullet else line
+        lines.append((is_bullet, text))
+    return lines
+
+
+def _add_docx_section_content(doc: Document, value: str) -> None:
+    parsed_lines = _parse_section_lines(value)
+    if not parsed_lines:
+        doc.add_paragraph(value)
+        return
+
+    for is_bullet, text in parsed_lines:
+        if is_bullet:
+            doc.add_paragraph(text, style="List Bullet")
+        else:
+            doc.add_paragraph(text)
+
+
+def _escape_pdf_text(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _append_pdf_section_content(story: list, value: str, body_style: ParagraphStyle, bullet_style: ParagraphStyle) -> None:
+    parsed_lines = _parse_section_lines(value)
+    if not parsed_lines:
+        story.append(Paragraph(_escape_pdf_text(value), body_style))
+        return
+
+    for is_bullet, text in parsed_lines:
+        safe_text = _escape_pdf_text(text)
+        if is_bullet:
+            story.append(Paragraph(f"- {safe_text}", bullet_style))
+        else:
+            story.append(Paragraph(safe_text, body_style))
 
 
 def _create_docx(data: dict, file_path: str) -> None:
@@ -68,7 +117,13 @@ def _create_docx(data: dict, file_path: str) -> None:
         if not value:
             continue
         doc.add_heading(title, level=1)
-        doc.add_paragraph(value)
+        _add_docx_section_content(doc, value)
+
+    links_lines = _build_links_lines(data)
+    if links_lines:
+        doc.add_heading("Coding Profiles / Links", level=1)
+        for link in links_lines:
+            doc.add_paragraph(link, style="List Bullet")
 
     doc.save(file_path)
 
@@ -90,6 +145,14 @@ def _create_pdf(data: dict, file_path: str) -> None:
         spaceAfter=6,
     )
 
+    bullet_style = ParagraphStyle(
+        "BulletBody",
+        parent=body_style,
+        leftIndent=14,
+        firstLineIndent=0,
+        spaceAfter=4,
+    )
+
     doc = SimpleDocTemplate(file_path, pagesize=LETTER, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
     story = []
 
@@ -107,10 +170,13 @@ def _create_pdf(data: dict, file_path: str) -> None:
         if not value:
             continue
         story.append(Paragraph(title, heading_style))
-        for line in value.split("\n"):
-            line = line.strip()
-            if line:
-                story.append(Paragraph(line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"), body_style))
+        _append_pdf_section_content(story, value, body_style, bullet_style)
+
+    links_lines = _build_links_lines(data)
+    if links_lines:
+        story.append(Paragraph("Coding Profiles / Links", heading_style))
+        for link in links_lines:
+            story.append(Paragraph(f"- {_escape_pdf_text(link)}", bullet_style))
 
     doc.build(story)
 

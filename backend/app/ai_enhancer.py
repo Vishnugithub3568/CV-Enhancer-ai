@@ -24,6 +24,7 @@ TARGET_KEYS = [
 ]
 
 IMMUTABLE_KEYS = {"name", "email", "phone", "links"}
+BULLET_SECTION_KEYS = {"projects", "experience", "certifications", "achievements", "responsibilities", "extracurricular"}
 LOW_VALUE_TOKENS = {
     "a", "an", "and", "as", "at", "by", "for", "from", "in", "is", "of", "on", "or", "the", "to", "with",
     "developed", "built", "created", "using", "worked", "project", "team", "experience", "skills", "summary",
@@ -33,7 +34,75 @@ LOW_VALUE_TOKENS = {
 def _clean_text(value):
     if not isinstance(value, str):
         return ""
-    return re.sub(r"\s+", " ", value).strip()
+
+    text = value.replace("\r\n", "\n").replace("\r", "\n")
+    normalized_lines = []
+    for raw_line in text.split("\n"):
+        line = re.sub(r"[\t ]+", " ", raw_line).strip()
+        if not line:
+            continue
+        line = re.sub(r"^[\-*]\s*", "- ", line)
+        normalized_lines.append(line)
+
+    return "\n".join(normalized_lines).strip()
+
+
+def _split_into_items(value):
+    text = _clean_text(value)
+    if not text:
+        return []
+
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    if len(lines) > 1:
+        return [re.sub(r"^[\-*]\s*", "", line).strip() for line in lines if line.strip()]
+
+    sentence_chunks = re.split(r"(?<=[.!?])\s+", text)
+    items = [chunk.strip() for chunk in sentence_chunks if chunk.strip()]
+    return items if items else [text]
+
+
+def _ensure_bullet_block(value):
+    items = _split_into_items(value)
+    if not items:
+        return ""
+    return "\n".join(f"- {item}" for item in items if item)
+
+
+def _format_summary(value):
+    text = _clean_text(value)
+    if not text:
+        return ""
+
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if s.strip()]
+    if len(sentences) >= 2:
+        return "\n".join(sentences[:3])
+    return text
+
+
+def _format_skills(value):
+    text = _clean_text(value)
+    if not text:
+        return ""
+
+    if ":" in text or text.startswith("-"):
+        return text
+
+    tokens = [token.strip() for token in re.split(r"[,|/]", text) if token.strip()]
+    if len(tokens) >= 4:
+        return "\n".join(f"- {token}" for token in tokens)
+
+    return text
+
+
+def _post_format_enhanced_data(data):
+    formatted = dict(data)
+    formatted["summary"] = _format_summary(formatted.get("summary", ""))
+    formatted["skills"] = _format_skills(formatted.get("skills", ""))
+
+    for key in BULLET_SECTION_KEYS:
+        formatted[key] = _ensure_bullet_block(formatted.get(key, ""))
+
+    return formatted
 
 
 def _normalize_links(value):
@@ -124,13 +193,56 @@ def enhance_resume(parsed_data):
 
     try:
         client = OpenAI(api_key=api_key)
-
         prompt = f"""
-        Rewrite the following resume content professionally while preserving original facts.
-        Do not add new companies, technologies, dates, roles, achievements, links, or qualifications.
-        If information is missing, keep it empty.
-        Return ONLY valid JSON with exactly these keys:
+        You are a professional resume writer.
+
+        Rewrite the following resume content so the final resume is clearly more professional, ATS friendly, concise, and impactful.
+
+        Mandatory quality requirements:
+        - Improve professional summary quality in 2-3 lines.
+        - Use strong action verbs throughout projects and experience.
+        - Improve project descriptions with purpose, technologies, and impact.
+        - Improve skills section readability and formatting.
+        - Keep formatting consistent across all sections.
+        - Keep language professional and recruiter-ready.
+
+        Resume structure intent:
+        - Name and Contact Information
+        - Professional Summary
+        - Education
+        - Technical Skills
+        - Projects
+        - Internship / Work Experience
+        - Certifications
+        - Achievements / Extracurricular Activities
+        - Coding Profiles / Links
+
+        Critical factual rules:
+        - Do not add fake information.
+        - Do not add new companies, technologies, dates, roles, achievements, links, or qualifications.
+        - Do not remove important information.
+        - Preserve original facts and intent.
+        - If information is missing, keep it empty.
+
+        Formatting rules:
+        - Use concise bullet points for projects, experience, certifications, achievements, responsibilities, and extracurricular when content exists.
+        - Keep summary plain text in 2-3 lines.
+        - Keep skills clearly organized with readable groupings when possible.
+
+        Output format:
+        - Return ONLY valid JSON.
+        - Use exactly these keys (no extra/missing keys):
         {TARGET_KEYS}
+        - Map sections as:
+          summary -> Summary
+          education -> Education
+          skills -> Technical Skills
+          projects -> Projects
+          experience -> Internship / Work Experience
+          certifications -> Certifications
+          achievements -> Achievements
+          responsibilities -> Positions of Responsibility
+          extracurricular -> Extracurricular
 
         Resume Data:
         {json.dumps(safe_data, indent=2)}
@@ -142,7 +254,7 @@ def enhance_resume(parsed_data):
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a professional resume editor. Improve wording only and never invent facts.",
+                    "content": "You are a professional resume editor. Produce ATS-friendly, concise, impact-focused rewrites using strong action verbs, and never invent facts.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -156,7 +268,8 @@ def enhance_resume(parsed_data):
         merged = safe_data.copy()
         merged.update(parsed_response)
         normalized = _normalize_output(merged)
-        guarded = _passes_factual_guardrails(safe_data, normalized)
+        formatted = _post_format_enhanced_data(normalized)
+        guarded = _passes_factual_guardrails(safe_data, formatted)
         return _normalize_output(guarded)
 
     except Exception:
